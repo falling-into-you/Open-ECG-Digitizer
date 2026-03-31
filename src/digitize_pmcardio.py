@@ -130,6 +130,13 @@ def save_matching_cost(got_values: dict[str, Any], output_basepath: str) -> None
         f.write(f"{file_name},{matching_cost},{is_flipped},{lead_layout}\n")
 
 
+def save_segmentation_npy(got_values: dict[str, Any], output_basepath: str) -> None:
+    """Save the aligned signal probability map as .npy for evaluation plots."""
+    if "aligned" in got_values and "signal_prob" in got_values["aligned"]:
+        sig_prob = got_values["aligned"]["signal_prob"].squeeze().cpu().numpy()
+        np.save(output_basepath + "_segmentation.npy", sig_prob)
+
+
 def save_outputs(got_values: dict[str, Any], output_basepath: str, save_mode: str = "all") -> None:
     canonical = canonical_from_got_values(got_values)
     if save_mode in ["all", "timeseries_only"]:
@@ -137,6 +144,7 @@ def save_outputs(got_values: dict[str, Any], output_basepath: str, save_mode: st
     if save_mode in ["all", "png_only"]:
         save_png_plot(got_values, canonical, output_basepath)
     save_matching_cost(got_values, output_basepath)
+    save_segmentation_npy(got_values, output_basepath)
 
 
 def process_one_file(file_path: str, config: CN, inference_wrapper: Any, save_mode: str) -> None:

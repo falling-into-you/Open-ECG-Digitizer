@@ -57,7 +57,7 @@ class InferenceWrapper(Module):
         """
         super().__init__()
         self.config = config
-        self.device = device
+        self.device = self._resolve_device(device)
         self.resample_size = resample_size
         self.grid_class = grid_class
         self.text_background_class = text_background_class
@@ -76,6 +76,15 @@ class InferenceWrapper(Module):
         self.dewarper: Any = self._load_dewarper()
         self.identifier = self._load_layout_identifier()
         self.times: dict[str, float] = {}
+
+    @staticmethod
+    def _resolve_device(device: str) -> str:
+        """Resolve device string: 'auto' picks cuda if available, else cpu."""
+        if device == "auto":
+            resolved = "cuda" if torch.cuda.is_available() else "cpu"
+            print(f"[INFO] Device auto-detected: {resolved}")
+            return resolved
+        return device
 
     @torch.no_grad()
     def forward(
@@ -347,10 +356,13 @@ class InferenceWrapper(Module):
         unet.eval()
 
         identifier_class = import_class_from_path(self.config.LAYOUT_IDENTIFIER.class_path)
+        layout_kwargs = dict(self.config.LAYOUT_IDENTIFIER.KWARGS)
+        if "device" in layout_kwargs:
+            layout_kwargs["device"] = self._resolve_device(str(layout_kwargs["device"]))
         identifier: Any = identifier_class(
             layouts=layouts,
             unet=unet,
-            **self.config.LAYOUT_IDENTIFIER.KWARGS,
+            **layout_kwargs,
         )
         return identifier
 

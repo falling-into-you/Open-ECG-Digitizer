@@ -40,16 +40,16 @@ MODEL:
           lower_grid_line_factor: 0.3
 
       LAYOUT_IDENTIFIER:
-        class_path: 'src.model.lead_identifier.LeadIdentifier'
+        class_path: 'src.model.lead_identifier_improved.LeadIdentifierImproved'
         config_path: 'src/config/lead_layouts_all.yml'
         unet_config_path: 'src/config/lead_name_unet.yml'
         unet_weight_path: './weights/lead_name_unet_weights_07072025.pt'
         KWARGS:
           debug: true
-          device: 'cuda'
+          device: 'auto'
           possibly_flipped: false
 
-    device: 'cuda'
+    device: 'auto'
     resample_size: 3000
     rotate_on_resample: true
     enable_timing: false

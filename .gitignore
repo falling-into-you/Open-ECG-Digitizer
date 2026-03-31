@@ -12,3 +12,6 @@ weights
 weights/unet_weights_07072025.pt
 
 weights/lead_name_unet_weights_07072025.pt
+.claude
+ecg-images-generator-main
+ecg_timeseries
