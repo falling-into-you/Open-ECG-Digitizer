@@ -41,6 +41,10 @@ class LeadIdentifier:
         self.debug = debug
 
     def _merge_nonoverlapping_lines(self, lines: torch.Tensor) -> torch.Tensor:
+        print(f"[DEBUG LeadIdentifier] _merge_nonoverlapping_lines input: {lines.shape[0]} lines, width={lines.shape[1]}")
+        for i in range(lines.shape[0]):
+            valid = (~torch.isnan(lines[i])).sum().item()
+            print(f"[DEBUG LeadIdentifier]   input line {i}: valid_pts={valid}/{lines.shape[1]}, nanmean_y={torch.nanmean(lines[i]):.1f}")
         if lines.shape[0] > 1:
             means: torch.Tensor = torch.nanmean(lines, dim=1)
             sorted_indices: torch.Tensor = torch.argsort(means)
@@ -64,6 +68,10 @@ class LeadIdentifier:
                 new_lines.append(lines[i])
                 i += 1
             lines = torch.stack(new_lines)
+        print(f"[DEBUG LeadIdentifier] _merge_nonoverlapping_lines output: {lines.shape[0]} lines")
+        for i in range(lines.shape[0]):
+            valid = (~torch.isnan(lines[i])).sum().item()
+            print(f"[DEBUG LeadIdentifier]   output line {i}: valid_pts={valid}/{lines.shape[1]}, nanmean_y={torch.nanmean(lines[i]):.1f}")
         return lines
 
     def _nan_cossim(self, x: torch.Tensor, y: torch.Tensor) -> float:
@@ -404,7 +412,11 @@ class LeadIdentifier:
         interpolated_lines: list[torch.Tensor] = []
         for i in range(num_leads):
             lead_line: NDArray[np.float64] = lines[i].cpu().numpy()
-            interpolated_line: NDArray[np.float64] = np.interp(x_new, x, lead_line)
+            valid_mask: NDArray[np.bool_] = ~np.isnan(lead_line)
+            if valid_mask.sum() >= 2:
+                interpolated_line: NDArray[np.float64] = np.interp(x_new, x[valid_mask], lead_line[valid_mask])
+            else:
+                interpolated_line = np.full(target_num_samples, np.nan)
             interpolated_lines.append(torch.tensor(interpolated_line, dtype=lines.dtype, device=lines.device))
         if len(interpolated_lines) == 0:
             return torch.empty((num_leads, target_num_samples), dtype=lines.dtype, device=lines.device)
@@ -412,17 +424,41 @@ class LeadIdentifier:
 
     def normalize(self, lines: torch.Tensor, avg_pixel_per_mm: float, mv_per_mm: float) -> torch.Tensor:
         """Changes the units of the ECG signals from pixels to mV/mm."""
+        print(f"[DEBUG LeadIdentifier] normalize input: shape={lines.shape}, avg_pixel_per_mm={avg_pixel_per_mm:.4f}, mv_per_mm={mv_per_mm}")
+        print(f"[DEBUG LeadIdentifier]   scale factor (mv_per_mm/avg_pixel_per_mm*1000) = {(mv_per_mm / avg_pixel_per_mm) * 1000:.4f}")
         lines = lines - lines.nanmean(dim=1, keepdim=True)
         lines = lines * (mv_per_mm / avg_pixel_per_mm) * 1000
+        print(f"[DEBUG LeadIdentifier]   after scale: value range = [{torch.nan_to_num(lines, nan=float('inf')).min():.1f}, {torch.nan_to_num(lines, nan=float('-inf')).max():.1f}] uV")
 
         non_nan_samples_per_column = torch.sum(~torch.isnan(lines), dim=0).numpy()
         first_valid_index: int = int(np.argmax(non_nan_samples_per_column >= self.required_valid_samples))
         last_valid_index: int = int(np.argmax(non_nan_samples_per_column[::-1] >= self.required_valid_samples))
         last_valid_index = lines.shape[1] - last_valid_index - 1
+        print(f"[DEBUG LeadIdentifier]   valid column range: [{first_valid_index}, {last_valid_index}] (required_valid_samples={self.required_valid_samples})")
+        print(f"[DEBUG LeadIdentifier]   non_nan per column: min={non_nan_samples_per_column.min()}, max={non_nan_samples_per_column.max()}, mean={non_nan_samples_per_column.mean():.1f}")
         if first_valid_index <= last_valid_index:
             lines = lines[:, first_valid_index : last_valid_index + 1]
+        print(f"[DEBUG LeadIdentifier]   after crop: shape={lines.shape}")
+
+        for i in range(lines.shape[0]):
+            nan_count = torch.isnan(lines[i]).sum().item()
+            valid_count = (~torch.isnan(lines[i])).sum().item()
+            if valid_count > 0:
+                vmin = lines[i][~torch.isnan(lines[i])].min().item()
+                vmax = lines[i][~torch.isnan(lines[i])].max().item()
+            else:
+                vmin, vmax = float('nan'), float('nan')
+            print(f"[DEBUG LeadIdentifier]   line {i} before interp: valid={valid_count}, nan={nan_count}, range=[{vmin:.1f}, {vmax:.1f}]")
 
         lines = self._interpolate_lines(lines, self.target_num_samples)
+        print(f"[DEBUG LeadIdentifier]   after interpolation to {self.target_num_samples}: shape={lines.shape}")
+        for i in range(lines.shape[0]):
+            nan_count = torch.isnan(lines[i]).sum().item()
+            if nan_count > 0:
+                print(f"[DEBUG LeadIdentifier]   WARNING: line {i} has {nan_count} NaN after interp!")
+            vmin = lines[i][~torch.isnan(lines[i])].min().item() if (~torch.isnan(lines[i])).any() else float('nan')
+            vmax = lines[i][~torch.isnan(lines[i])].max().item() if (~torch.isnan(lines[i])).any() else float('nan')
+            print(f"[DEBUG LeadIdentifier]   line {i} after interp: range=[{vmin:.1f}, {vmax:.1f}]")
 
         return lines
 
@@ -456,8 +492,11 @@ class LeadIdentifier:
         mv_per_mm: float = 0.1,
         layout_should_include_substring: Optional[str] = None,
     ) -> dict[str, Any]:
+        print(f"[DEBUG LeadIdentifier] __call__ input lines shape: {lines.shape}")
         lines = self._merge_nonoverlapping_lines(lines)
+        print(f"[DEBUG LeadIdentifier] after merge_nonoverlapping: {lines.shape}")
         lines = -self.normalize(lines, avg_pixel_per_mm, mv_per_mm)
+        print(f"[DEBUG LeadIdentifier] after normalize (negated): shape={lines.shape}, range=[{torch.nan_to_num(lines, nan=float('inf')).min():.1f}, {torch.nan_to_num(lines, nan=float('-inf')).max():.1f}]")
         layouts = self.layouts.copy()
 
         if layout_should_include_substring is not None:
@@ -475,6 +514,7 @@ class LeadIdentifier:
             probs[:, 0] = 0  # Ignore the position of the "I" lead as it is particularly prone to false positives.
         probs[probs < threshold] = 0
         detected: list[tuple[str, float, float]] = self._extract_lead_points(probs, self.LEAD_CHANNEL_ORDER)
+        print(f"[DEBUG LeadIdentifier] detected lead points: {len(detected)} leads: {[(n, f'{x:.0f}', f'{y:.0f}') for n, x, y in detected]}")
         if len(detected) <= 2:
             match: dict[str, Any] = {"cost": float("inf")}
             canonical_lines: Optional[torch.Tensor] = None
@@ -485,7 +525,18 @@ class LeadIdentifier:
             print(f"No matching layout found, defaulting to first layout: {list(layouts.keys())[0]}")
             match["layout"] = list(layouts.keys())[0]
 
+        print(f"[DEBUG LeadIdentifier] matched layout: {match.get('layout')}, cost={match.get('cost', 'N/A')}, flip={match.get('flip', False)}")
         canonical_lines = self._canonicalize_lines(lines.clone(), match)
+        print(f"[DEBUG LeadIdentifier] canonical_lines shape: {canonical_lines.shape}")
+        for i, name in enumerate(self.LEAD_CHANNEL_ORDER):
+            valid = (~torch.isnan(canonical_lines[i])).sum().item()
+            nan_pct = torch.isnan(canonical_lines[i]).sum().item() / canonical_lines.shape[1] * 100
+            if valid > 0:
+                vmin = canonical_lines[i][~torch.isnan(canonical_lines[i])].min().item()
+                vmax = canonical_lines[i][~torch.isnan(canonical_lines[i])].max().item()
+            else:
+                vmin, vmax = float('nan'), float('nan')
+            print(f"[DEBUG LeadIdentifier]   {name:>4s}: valid={valid}/{canonical_lines.shape[1]} ({nan_pct:.1f}% NaN), range=[{vmin:.1f}, {vmax:.1f}]")
 
         return {
             "rows_in_layout": rows_in_layout,

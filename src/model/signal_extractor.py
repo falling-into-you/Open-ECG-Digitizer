@@ -47,16 +47,30 @@ class SignalExtractor:
 
     def __call__(self, feature_map: torch.Tensor) -> torch.Tensor:
         fmap = feature_map.cpu().clone()
+        print(f"[DEBUG SignalExtractor] input feature_map shape: {feature_map.shape}, min={feature_map.min():.4f}, max={feature_map.max():.4f}")
         lines_list = self._iterative_extraction(fmap)
         self.num_peaks = self._autodetect_num_peaks(fmap)
+        print(f"[DEBUG SignalExtractor] after iterative extraction: {len(lines_list)} lines, autodetected peaks: {self.num_peaks}")
+        for i, ln in enumerate(lines_list):
+            valid = (~torch.isnan(ln)).sum().item()
+            print(f"[DEBUG SignalExtractor]   line {i}: valid_pts={valid}/{ln.shape[0]}, y_range=[{ln[~torch.isnan(ln)].min():.1f}, {ln[~torch.isnan(ln)].max():.1f}]" if valid > 0 else f"[DEBUG SignalExtractor]   line {i}: all NaN")
         lines_list = [ln for ln in lines_list if (~torch.isnan(ln)).sum() > self.min_line_width]
+        print(f"[DEBUG SignalExtractor] after min_width filter: {len(lines_list)} lines")
         if len(lines_list) == 0:
             return torch.empty((0, feature_map.shape[1]), dtype=torch.float32)
         lines = torch.stack(lines_list, dim=0)
         merged_lines_list, overlaps = self.match_and_merge_lines(lines)
+        print(f"[DEBUG SignalExtractor] after merge: {len(merged_lines_list)} lines, overlaps={[f'{o:.2f}' for o in overlaps]}")
         if len(merged_lines_list) == 0:
             return torch.empty((0, feature_map.shape[1]), dtype=torch.float32)
         merged_lines = torch.stack(merged_lines_list, dim=0)
+        for i, ln in enumerate(merged_lines):
+            valid = (~torch.isnan(ln)).sum().item()
+            nan_pct = torch.isnan(ln).sum().item() / ln.shape[0] * 100
+            if valid > 0:
+                print(f"[DEBUG SignalExtractor]   merged line {i}: valid_pts={valid}/{ln.shape[0]} ({nan_pct:.1f}% NaN), y_range=[{ln[~torch.isnan(ln)].min():.1f}, {ln[~torch.isnan(ln)].max():.1f}]")
+            else:
+                print(f"[DEBUG SignalExtractor]   merged line {i}: all NaN")
         if self.num_peaks != len(merged_lines):
             print(
                 f"Warning: Number of peaks ({self.num_peaks}) does not match number of merged lines ({len(merged_lines)})."

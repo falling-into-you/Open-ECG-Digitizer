@@ -1,0 +1,1 @@
+python3 -m src.digitize --config src/config/inference_wrapper.yml

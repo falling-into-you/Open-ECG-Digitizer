@@ -96,22 +96,29 @@ class InferenceWrapper(Module):
 
         self.times = {}
         image = self._resample_image(image)
+        print(f"[DEBUG InferenceWrapper] image after resample: {image.shape}")
 
         signal_prob, grid_prob, text_prob = self._get_feature_maps(image)
+        print(f"[DEBUG InferenceWrapper] signal_prob: shape={signal_prob.shape}, min={signal_prob.min():.4f}, max={signal_prob.max():.4f}, mean={signal_prob.mean():.4f}")
+        print(f"[DEBUG InferenceWrapper] grid_prob: shape={grid_prob.shape}, min={grid_prob.min():.4f}, max={grid_prob.max():.4f}, mean={grid_prob.mean():.4f}")
 
         with timed_section("Perspective detection", self.times):
             alignment_params = self.perspective_detector(grid_prob)
+        print(f"[DEBUG InferenceWrapper] alignment_params: {alignment_params}")
 
         with timed_section("Cropping", self.times):
             source_points = self.cropper(signal_prob, alignment_params)
+        print(f"[DEBUG InferenceWrapper] source_points: {source_points}")
 
         aligned_image, aligned_signal_prob, aligned_grid_prob, aligned_text_prob = self._align_feature_maps(
             image, signal_prob, grid_prob, text_prob, source_points
         )
+        print(f"[DEBUG InferenceWrapper] aligned_signal_prob: shape={aligned_signal_prob.shape}, nonzero_frac={( aligned_signal_prob > 0.01).float().mean():.4f}")
 
         with timed_section("Pixel size search", self.times):
             mm_per_pixel_x, mm_per_pixel_y = self.pixel_size_finder(aligned_grid_prob)
             avg_pixel_per_mm = (1 / mm_per_pixel_x + 1 / mm_per_pixel_y) / 2
+        print(f"[DEBUG InferenceWrapper] mm_per_pixel: x={mm_per_pixel_x:.6f}, y={mm_per_pixel_y:.6f}, avg_pixel_per_mm={avg_pixel_per_mm:.4f}")
 
         with timed_section("Dewarping", self.times):
             if self.apply_dewarping:
@@ -334,7 +341,7 @@ class InferenceWrapper(Module):
         unet_cfg = yaml.safe_load(open(self.config.LAYOUT_IDENTIFIER.unet_config_path, "r"))
         unet_class = import_class_from_path(unet_cfg["MODEL"]["class_path"])
         unet: torch.nn.Module = unet_class(**unet_cfg["MODEL"]["KWARGS"])
-        checkpoint = torch.load(self.config.LAYOUT_IDENTIFIER.unet_weight_path, map_location=self.device)
+        checkpoint = torch.load(self.config.LAYOUT_IDENTIFIER.unet_weight_path, weights_only=False, map_location=self.device)
         checkpoint = {k.replace("_orig_mod.", ""): v for k, v in checkpoint.items()}
         unet.load_state_dict(checkpoint)
         unet.eval()
@@ -353,7 +360,7 @@ class InferenceWrapper(Module):
         Args:
             segmentation_model: The model to load weights into.
         """
-        checkpoint = torch.load(self.config.SEGMENTATION_MODEL.weight_path, weights_only=True, map_location=self.device)
+        checkpoint = torch.load(self.config.SEGMENTATION_MODEL.weight_path, weights_only=False, map_location=self.device)
         if isinstance(checkpoint, tuple):
             checkpoint = checkpoint[0]
         checkpoint = {k.replace("_orig_mod.", ""): v for k, v in checkpoint.items()}

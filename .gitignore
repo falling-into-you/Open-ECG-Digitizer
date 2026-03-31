@@ -6,3 +6,9 @@ venv
 src/scripts/visualized_transforms
 src/report/figures
 sandbox/
+archive
+ecg_images
+weights
+weights/unet_weights_07072025.pt
+
+weights/lead_name_unet_weights_07072025.pt

@@ -41,11 +41,11 @@ MODEL:
 
       LAYOUT_IDENTIFIER:
         class_path: 'src.model.lead_identifier.LeadIdentifier'
-        config_path: 'src/config/lead_layouts_reduced.yml'
+        config_path: 'src/config/lead_layouts_all.yml'
         unet_config_path: 'src/config/lead_name_unet.yml'
         unet_weight_path: './weights/lead_name_unet_weights_07072025.pt'
         KWARGS:
-          debug: false
+          debug: true
           device: 'cuda'
           possibly_flipped: false
 
@@ -56,8 +56,8 @@ MODEL:
     apply_dewarping: false
 
 DATA:
-  images_path: '/dataset/ecg-digitization/images_and_scans_with_csvs_labeled_2/'
+  images_path: 'ecg_images/'
   image_extensions: ['.png', '.jpg', '.jpeg', '.JPG']
   output_path: 'sandbox/inference_output'
   save_mode: 'all'
-  layout_should_include_substring: true # setting this to true will restrict layouts with "limb" or "precordial" in their names, based on filenames
+  layout_should_include_substring: false
